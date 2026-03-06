@@ -1,10 +1,10 @@
-"""Rerun Config B on the 3 complex queries that hung, with per-query timeout."""
+"""Rerun Config B on the 3 complex queries that hung, with per-query timeout via multiprocessing."""
 
 import sys
-import signal
 import json
 import time
 import logging
+import multiprocessing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
@@ -12,16 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from agents.config import AgentConfig
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("rerun")
-
-# Import from the main benchmark
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from temperature_benchmark import (
-    run_single_query, ComplexityAnalyzer, RetrievalAgent, _stats
-)
 
 TEMPERATURES = [0.0, 0.1, 0.1, 0.1, 0.1]
 COMPLEX_QUERIES = [
@@ -30,36 +22,80 @@ COMPLEX_QUERIES = [
     "How many orders were placed each month in 2024?",
 ]
 RUNS_PER_QUERY = 3
-TIMEOUT_SECONDS = 180  # 3 min hard timeout per run
+TIMEOUT_SECONDS = 180
 
 
-class TimeoutError(Exception):
-    pass
+def _run_query_in_process(question, temperatures, result_queue):
+    """Run a single query in an isolated process (so we can kill it on timeout)."""
+    import os
+    os.environ.setdefault("PYTHONPATH", str(Path(__file__).resolve().parent.parent / "backend"))
 
+    from agents.config import AgentConfig
+    from agents.complexity_analyzer import ComplexityAnalyzer
+    from agents.retrieval_agent import RetrievalAgent
+    from temperature_benchmark import run_single_query
 
-def timeout_handler(signum, frame):
-    raise TimeoutError("Query exceeded timeout")
-
-
-def main():
     config = AgentConfig.from_env()
     complexity = ComplexityAnalyzer()
     retrieval = RetrievalAgent(config)
 
+    result = run_single_query(question, config, temperatures, complexity, retrieval)
+    result_queue.put(result)
+
+
+def run_with_timeout(question, temperatures, timeout):
+    """Run a query with a hard process-level timeout."""
+    q = multiprocessing.Queue()
+    p = multiprocessing.Process(target=_run_query_in_process, args=(question, temperatures, q))
+    p.start()
+    p.join(timeout=timeout)
+
+    if p.is_alive():
+        p.terminate()
+        p.join(timeout=5)
+        if p.is_alive():
+            p.kill()
+            p.join()
+        return None  # timed out
+
+    if not q.empty():
+        return q.get()
+    return None
+
+
+def _stats(values):
+    import math
+    n = len(values)
+    if n == 0:
+        return {"mean": 0, "std": 0}
+    mean = sum(values) / n
+    std = math.sqrt(sum((x - mean) ** 2 for x in values) / (n - 1)) if n > 1 else 0
+    return {"mean": mean, "std": std}
+
+
+def main():
     results = {}
 
     for q in COMPLEX_QUERIES:
         results[q] = []
         for run_idx in range(RUNS_PER_QUERY):
             logger.info("--- [Run %d/%d] %s", run_idx + 1, RUNS_PER_QUERY, q)
+            start = time.time()
 
-            # Set alarm timeout
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(TIMEOUT_SECONDS)
+            result = run_with_timeout(q, TEMPERATURES, TIMEOUT_SECONDS)
 
-            try:
-                result = run_single_query(q, config, TEMPERATURES, complexity, retrieval)
-                signal.alarm(0)  # Cancel alarm
+            if result is None:
+                elapsed = int((time.time() - start) * 1000)
+                logger.error("  TIMED OUT after %ds", TIMEOUT_SECONDS)
+                results[q].append({
+                    "question": q,
+                    "total_rounds": -1,
+                    "total_api_calls": -1,
+                    "sql_correct": False,
+                    "elapsed_ms": elapsed,
+                    "error": f"timeout_{TIMEOUT_SECONDS}s",
+                })
+            else:
                 results[q].append(result)
                 logger.info(
                     "  Rounds: TS=%d JA=%d SQL=%d | Total=%d | API=%d | Correct=%s | %dms",
@@ -71,28 +107,6 @@ def main():
                     result["sql_correct"],
                     result["elapsed_ms"],
                 )
-            except TimeoutError:
-                signal.alarm(0)
-                logger.error("  TIMED OUT after %ds", TIMEOUT_SECONDS)
-                results[q].append({
-                    "question": q,
-                    "total_rounds": -1,
-                    "total_api_calls": -1,
-                    "sql_correct": False,
-                    "elapsed_ms": TIMEOUT_SECONDS * 1000,
-                    "error": f"timeout_{TIMEOUT_SECONDS}s",
-                })
-            except Exception as e:
-                signal.alarm(0)
-                logger.error("  FAILED: %s", e)
-                results[q].append({
-                    "question": q,
-                    "total_rounds": -1,
-                    "total_api_calls": -1,
-                    "sql_correct": False,
-                    "elapsed_ms": 0,
-                    "error": str(e),
-                })
 
     # Print summary
     print("\n" + "=" * 80)
@@ -102,18 +116,16 @@ def main():
     for q in COMPLEX_QUERIES:
         runs = results[q]
         valid = [r for r in runs if r.get("total_rounds", -1) >= 0]
-        timed_out = sum(1 for r in runs if r.get("error", "").startswith("timeout"))
-        failed = sum(1 for r in runs if r.get("total_rounds", -1) < 0 and not r.get("error", "").startswith("timeout"))
+        timed_out = sum(1 for r in runs if "timeout" in str(r.get("error", "")))
 
         print(f"\n  {q}")
         if valid:
             rnd = _stats([r["total_rounds"] for r in valid])
             api = _stats([r["total_api_calls"] for r in valid])
-            print(f"    Completed: {len(valid)}/{len(runs)} | Rounds: {rnd['mean']:.1f} +/- {rnd['std']:.1f} | API: {api['mean']:.1f} +/- {api['std']:.1f}")
+            t = _stats([r["elapsed_ms"] / 1000 for r in valid])
+            print(f"    Completed: {len(valid)}/{len(runs)} | Rounds: {rnd['mean']:.1f} +/- {rnd['std']:.1f} | API: {api['mean']:.1f} +/- {api['std']:.1f} | Time: {t['mean']:.1f}s")
         if timed_out:
-            print(f"    Timed out: {timed_out}/{len(runs)}")
-        if failed:
-            print(f"    Failed: {failed}/{len(runs)}")
+            print(f"    Timed out: {timed_out}/{len(runs)} (>{TIMEOUT_SECONDS}s)")
 
     # Save results
     out_path = Path(__file__).resolve().parent / "config_b_complex_results.json"
@@ -123,4 +135,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.set_start_method("spawn")
     main()

@@ -27,6 +27,10 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+# Override DB_PATH for running from project root (not backend/)
+import os as _os
+_os.environ["DB_PATH"] = str(Path(__file__).resolve().parent.parent / "demo_data" / "demo.db")
+
 from google import genai
 from google.genai import types as genai_types
 

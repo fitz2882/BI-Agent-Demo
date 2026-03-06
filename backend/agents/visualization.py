@@ -29,31 +29,43 @@ class VisualizationAgent:
         spec = self._select_chart(time_cols, numeric_cols, categorical_cols, results)
         if spec:
             spec["data"] = self._clean_data(results)
-            state.log_step("Visualization", f"{spec['type'].title()} chart: X={spec['xKey']}, Y={spec['yKey']}")
+            y_label = ", ".join(spec["yKeys"]) if "yKeys" in spec else spec.get("yKey", "")
+            state.log_step("Visualization", f"{spec['type'].replace('_', ' ').title()} chart: X={spec['xKey']}, Y={y_label}")
         return spec
 
     def _select_chart(self, time_cols, numeric_cols, categorical_cols, results):
-        # Time-series -> line
+        # Time-series
         if time_cols and numeric_cols:
+            if len(numeric_cols) >= 2:
+                return {"type": "multi_line", "xKey": time_cols[0], "yKeys": numeric_cols, "title": "Trends"}
             return {"type": "line", "xKey": time_cols[0], "yKey": numeric_cols[0], "title": "Trend"}
 
-        # Two numerics -> scatter
+        # Two numerics, no categories -> scatter
         if len(numeric_cols) == 2 and not categorical_cols:
             return {"type": "scatter", "xKey": numeric_cols[0], "yKey": numeric_cols[1], "title": "Scatter"}
 
-        # Categorical + numeric
+        # Categorical + multiple numerics -> stacked bar
+        if categorical_cols and len(numeric_cols) >= 2:
+            return {"type": "stacked_bar", "xKey": categorical_cols[0], "yKeys": numeric_cols, "title": "Breakdown"}
+
+        # Categorical + single numeric
         if categorical_cols and numeric_cols:
             if self._is_proportional(results, numeric_cols[0]):
                 return {"type": "pie", "xKey": categorical_cols[0], "yKey": numeric_cols[0], "title": "Distribution"}
+            if len(results) <= 15:
+                return {"type": "horizontal_bar", "xKey": numeric_cols[0], "yKey": categorical_cols[0], "title": "Comparison"}
             return {"type": "bar", "xKey": categorical_cols[0], "yKey": numeric_cols[0], "title": "Comparison"}
 
         return None
 
     def _find_time_columns(self, columns, results):
-        time_keywords = ["date", "time", "timestamp", "year", "month", "day"]
+        # Match standalone time-related segments in column names (e.g. "order_date" but not "lifetime_value")
+        time_pattern = re.compile(
+            r"(?:^|_|-)(date|timestamp|year|month|day|quarter|week)(?:$|_|-)", re.IGNORECASE
+        )
         found = []
         for col in columns:
-            if any(kw in col.lower() for kw in time_keywords):
+            if time_pattern.search(col):
                 found.append(col)
                 continue
             for row in results[:3]:

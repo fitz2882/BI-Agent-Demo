@@ -8,7 +8,7 @@ Flow:
 
 import logging
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 
 from .config import AgentConfig
 from .state import MAKERState
@@ -40,12 +40,19 @@ class Pipeline:
         self.formatter = FormatterAgent(self.config)
         self.viz = VisualizationAgent()
 
-    def run(self, question: str) -> Dict[str, Any]:
-        """Run the full pipeline and return the response."""
+    def run(self, question: str, on_step: Optional[Callable[[str, str], None]] = None) -> Dict[str, Any]:
+        """Run the full pipeline and return the response.
+
+        Args:
+            question: The user's natural language question.
+            on_step: Optional callback invoked after each agent step with (agent, detail).
+        """
         start = time.time()
 
         # 1. Initialize state
         state = MAKERState(user_question=question.strip())
+        if on_step:
+            state._on_step = on_step
         state.log_step("EntryAgent", f"Received question (trace_id={state.trace_id})")
         logger.info("Pipeline started: trace_id=%s", state.trace_id)
 

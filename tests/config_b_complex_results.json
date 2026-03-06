@@ -1,0 +1,129 @@
+{
+  "Show me total revenue by product category": [
+    {
+      "question": "Show me total revenue by product category",
+      "total_rounds": -1,
+      "total_api_calls": -1,
+      "sql_correct": false,
+      "elapsed_ms": 180035,
+      "error": "timeout_180s"
+    },
+    {
+      "question": "Show me total revenue by product category",
+      "complexity_score": 0.8049999999999999,
+      "k_threshold": 4,
+      "table_selection_rounds": 2,
+      "join_rounds": 5,
+      "sql_rounds": 2,
+      "total_rounds": 9,
+      "total_api_calls": 30,
+      "sql_correct": true,
+      "result_count": 6,
+      "execution_error": null,
+      "final_sql": "SELECT categories.name, SUM(order_items.quantity * order_items.unit_price) FROM categories JOIN products ON categories.id = products.category_id JOIN order_items ON products.id = order_items.product_id JOIN orders ON order_items.order_id = orders.id WHERE orders.status != 'cancelled' GROUP BY categories.name;",
+      "elapsed_ms": 160330
+    },
+    {
+      "question": "Show me total revenue by product category",
+      "total_rounds": -1,
+      "total_api_calls": -1,
+      "sql_correct": false,
+      "elapsed_ms": 180005,
+      "error": "timeout_180s"
+    }
+  ],
+  "Which products have the highest profit margin?": [
+    {
+      "question": "Which products have the highest profit margin?",
+      "complexity_score": 0.33,
+      "k_threshold": 3,
+      "table_selection_rounds": 1,
+      "join_rounds": 0,
+      "sql_rounds": 1,
+      "total_rounds": 2,
+      "total_api_calls": 6,
+      "sql_correct": true,
+      "result_count": 11,
+      "execution_error": null,
+      "final_sql": "SELECT name, (price - cost) / price AS profit_margin FROM products ORDER BY profit_margin DESC;",
+      "elapsed_ms": 38602
+    },
+    {
+      "question": "Which products have the highest profit margin?",
+      "complexity_score": 0.33,
+      "k_threshold": 3,
+      "table_selection_rounds": 1,
+      "join_rounds": 0,
+      "sql_rounds": 2,
+      "total_rounds": 3,
+      "total_api_calls": 9,
+      "sql_correct": true,
+      "result_count": 11,
+      "execution_error": null,
+      "final_sql": "SELECT name, (price - cost) / price AS profit_margin FROM products ORDER BY profit_margin DESC;",
+      "elapsed_ms": 37047
+    },
+    {
+      "question": "Which products have the highest profit margin?",
+      "complexity_score": 0.33,
+      "k_threshold": 3,
+      "table_selection_rounds": 1,
+      "join_rounds": 0,
+      "sql_rounds": 6,
+      "total_rounds": 7,
+      "total_api_calls": 21,
+      "sql_correct": true,
+      "result_count": 11,
+      "execution_error": null,
+      "final_sql": "SELECT name, (price - cost) / price * 100 AS gross_margin FROM products ORDER BY gross_margin DESC;",
+      "elapsed_ms": 131559
+    }
+  ],
+  "How many orders were placed each month in 2024?": [
+    {
+      "question": "How many orders were placed each month in 2024?",
+      "complexity_score": 0.33499999999999996,
+      "k_threshold": 3,
+      "table_selection_rounds": 1,
+      "join_rounds": 0,
+      "sql_rounds": 2,
+      "total_rounds": 3,
+      "total_api_calls": 6,
+      "sql_correct": true,
+      "result_count": 12,
+      "execution_error": null,
+      "final_sql": "SELECT strftime('%m', order_date) AS month, COUNT(id) AS order_count FROM orders WHERE strftime('%Y', order_date) = '2024' GROUP BY month;",
+      "elapsed_ms": 36522
+    },
+    {
+      "question": "How many orders were placed each month in 2024?",
+      "complexity_score": 0.33499999999999996,
+      "k_threshold": 3,
+      "table_selection_rounds": 1,
+      "join_rounds": 0,
+      "sql_rounds": 2,
+      "total_rounds": 3,
+      "total_api_calls": 8,
+      "sql_correct": true,
+      "result_count": 12,
+      "execution_error": null,
+      "final_sql": "SELECT strftime('%m', order_date) AS month, COUNT(id) AS order_count FROM orders WHERE strftime('%Y', order_date) = '2024' GROUP BY month;",
+      "elapsed_ms": 70652
+    },
+    {
+      "question": "How many orders were placed each month in 2024?",
+      "complexity_score": 0.33499999999999996,
+      "k_threshold": 3,
+      "table_selection_rounds": 1,
+      "join_rounds": 0,
+      "sql_rounds": 4,
+      "total_rounds": 5,
+      "total_api_calls": 13,
+      "sql_correct": true,
+      "result_count": 12,
+      "execution_error": null,
+      "final_sql": "SELECT strftime('%m', order_date) AS month, COUNT(id) FROM orders WHERE order_date BETWEEN '2024-01-01' AND '2024-12-31' AND status != 'cancelled' GROUP BY month;",
+      "elapsed_ms": 118248
+    }
+  ]
+}

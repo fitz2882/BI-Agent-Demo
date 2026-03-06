@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { queryAgent } from './services/api';
+import { queryAgentStream } from './services/api';
 import Composer from './components/Composer';
 import MessageBubble from './components/MessageBubble';
 import AgentSteps from './components/AgentSteps';
@@ -10,19 +10,22 @@ import QuickQuestions from './components/QuickQuestions';
 function App() {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [liveSteps, setLiveSteps] = useState([]);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, liveSteps]);
 
   const handleSubmit = async (question) => {
-    // Add user message
     setMessages((prev) => [...prev, { type: 'user', content: question }]);
     setIsLoading(true);
+    setLiveSteps([]);
 
     try {
-      const result = await queryAgent(question);
+      const result = await queryAgentStream(question, (step) => {
+        setLiveSteps((prev) => [...prev, step]);
+      });
       setMessages((prev) => [
         ...prev,
         {
@@ -44,6 +47,7 @@ function App() {
       ]);
     } finally {
       setIsLoading(false);
+      setLiveSteps([]);
     }
   };
 
@@ -53,18 +57,32 @@ function App() {
     <div className="flex flex-col h-screen" style={{ backgroundColor: 'var(--color-bg)' }}>
       {/* Header */}
       <header
-        className="flex items-center gap-3 px-6 py-4 border-b"
+        className="flex items-center justify-between px-6 py-4 border-b"
         style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }}
       >
-        <span className="text-2xl">📊</span>
-        <div>
-          <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
-            Acme Analytics
-          </h1>
-          <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-            BI Agent Demo
-          </p>
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">📊</span>
+          <div>
+            <h1 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>
+              Acme Analytics
+            </h1>
+            <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              BI Agent Demo
+            </p>
+          </div>
         </div>
+        {messages.length > 0 && (
+          <button
+            onClick={() => { setMessages([]); setIsLoading(false); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+            style={{ color: 'var(--color-text-secondary)', borderColor: 'var(--color-border)' }}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+            New Chat
+          </button>
+        )}
       </header>
 
       {/* Messages */}
@@ -110,13 +128,24 @@ function App() {
 
           {isLoading && (
             <MessageBubble type="ai">
-              <div className="flex items-center gap-2">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+              <div className="space-y-1.5">
+                {liveSteps.map((step, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    <span className="font-medium" style={{ color: '#22c55e' }}>✓</span>
+                    <span className="font-medium" style={{ color: 'var(--color-text)' }}>{step.agent}</span>
+                    <span>{step.detail}</span>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    {liveSteps.length === 0 ? 'Starting pipeline...' : 'Processing...'}
+                  </span>
                 </div>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Running agent pipeline...</span>
               </div>
             </MessageBubble>
           )}

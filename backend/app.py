@@ -1,11 +1,15 @@
 """FastAPI server for the BI Agent Demo."""
 
+import json
 import logging
 import os
+import queue
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agents.pipeline import Pipeline
@@ -85,6 +89,50 @@ async def query(request: QueryRequest):
     except Exception as e:
         logger.exception("Pipeline error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/query/stream")
+async def query_stream(request: QueryRequest):
+    """SSE endpoint that streams pipeline steps, then the final result."""
+    if not request.question or not request.question.strip():
+        raise HTTPException(status_code=400, detail="Question cannot be empty")
+    if len(request.question) > 1000:
+        raise HTTPException(status_code=400, detail="Question too long (max 1000 chars)")
+
+    step_queue: queue.Queue = queue.Queue()
+
+    def on_step(agent: str, detail: str):
+        step_queue.put({"agent": agent, "detail": detail})
+
+    def generate():
+        # Run pipeline in a thread so we can yield steps as they arrive
+        result_holder = {}
+        error_holder = {}
+
+        def run_pipeline():
+            try:
+                pipeline = get_pipeline()
+                result_holder["data"] = pipeline.run(request.question, on_step=on_step)
+            except Exception as e:
+                error_holder["error"] = str(e)
+            finally:
+                step_queue.put(None)  # Sentinel
+
+        thread = threading.Thread(target=run_pipeline)
+        thread.start()
+
+        while True:
+            item = step_queue.get()
+            if item is None:
+                break
+            yield f"event: step\ndata: {json.dumps(item)}\n\n"
+
+        if error_holder:
+            yield f"event: error\ndata: {json.dumps({'detail': error_holder['error']})}\n\n"
+        elif result_holder:
+            yield f"event: result\ndata: {json.dumps(result_holder['data'])}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @app.get("/schema")

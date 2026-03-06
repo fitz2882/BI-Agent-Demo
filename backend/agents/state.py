@@ -4,8 +4,8 @@ A rigid JSON structure passed through the agent network holding trace_id,
 user question, schema context, and intermediate results.
 """
 
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Callable
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
 from uuid import uuid4
 import json
 
@@ -21,6 +21,7 @@ class StepOutputs(BaseModel):
 
 class MAKERState(BaseModel):
     """The State Object that passes through the agent pipeline."""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     trace_id: str = Field(default_factory=lambda: str(uuid4()))
     user_question: str = Field(...)
@@ -32,10 +33,13 @@ class MAKERState(BaseModel):
     retry_count: int = Field(default=0, ge=0)
     execution_time_ms: int = Field(default=0, ge=0)
     agent_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    _on_step: Optional[Callable[[str, str], None]] = PrivateAttr(default=None)
 
     def log_step(self, agent: str, detail: str):
         """Record a pipeline step for the UI trace display."""
         self.agent_steps.append({"agent": agent, "detail": detail})
+        if self._on_step:
+            self._on_step(agent, detail)
 
     def to_json(self) -> dict:
         return self.model_dump()
