@@ -25,7 +25,7 @@ if not Path(DB_PATH).exists():
 
 app = FastAPI(
     title="BI Agent Demo",
-    description="MAKER Framework Business Intelligence Agent - Demo",
+    description="Multi-Agent Business Intelligence System - Demo",
     version="1.0.0",
 )
 

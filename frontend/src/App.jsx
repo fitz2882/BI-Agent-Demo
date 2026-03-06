@@ -62,7 +62,7 @@ function App() {
             Acme Analytics
           </h1>
           <p className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
-            MAKER Framework BI Agent Demo
+            BI Agent Demo
           </p>
         </div>
       </header>
@@ -76,7 +76,7 @@ function App() {
                 Ask anything about your data
               </h2>
               <p className="text-base mb-8" style={{ color: 'var(--color-text-secondary)' }}>
-                I'll generate SQL, execute it, and explain the results using the MAKER voting consensus framework.
+                I'll generate SQL, execute it, and explain the results using multi-agent voting consensus.
               </p>
               <QuickQuestions onSelect={handleSubmit} />
             </div>
@@ -116,7 +116,7 @@ function App() {
                   <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '150ms' }} />
                   <span className="w-2 h-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Running MAKER pipeline...</span>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Running agent pipeline...</span>
               </div>
             </MessageBubble>
           )}

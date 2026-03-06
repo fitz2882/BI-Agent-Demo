@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A demo of the BI Agent Demo. Users ask natural language business questions; a multi-agent pipeline pulls relevant database tables, fields, business rules from Google File Search (RAG), generates SQL via voting consensus, executes it, and returns formatted answers with charts.
+A multi-agent BI system inspired by the [MAKER framework](https://arxiv.org/html/2511.09030v1). Users ask natural language business questions; a pipeline of specialized agents retrieves schema context via RAG, generates SQL through voting consensus, executes it, and returns formatted answers with charts.
 
 ## Commands
 

@@ -1,10 +1,10 @@
 # BI Agent Demo
 
-A simplified demonstration of the **MAKER Framework** for Business Intelligence — a multi-agent SQL generation system that uses voting consensus to produce reliable queries.
+A multi-agent Business Intelligence system that translates natural language questions into SQL queries using voting consensus. Inspired by the [MAKER (Multi-Agent Knowledge-Enhanced Reasoning) framework](https://arxiv.org/html/2511.09030v1), adapted for real-time BI workflows.
 
 ## How It Works
 
-The MAKER (Multi-Agent Knowledge-Enhanced Reasoning) framework generates SQL through a pipeline of specialized agents:
+A pipeline of specialized agents collaborates to generate, validate, and execute SQL:
 
 ```
 User Question
@@ -126,7 +126,7 @@ backend/
     table_selector.py        Voting consensus for table selection
     join_architect.py        Voting consensus for JOIN logic
     sql_synthesizer.py       Voting consensus for SQL generation
-    voting_subnetwork.py     Core MAKER voting pattern (reusable)
+    voting_subnetwork.py     Voting consensus pattern (reusable)
     executor.py              Executes SQL against SQLite
     formatter.py             LLM-powered natural language formatting
     visualization.py         Auto-detects chart type, generates specs
