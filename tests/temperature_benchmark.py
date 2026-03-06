@@ -81,26 +81,57 @@ RUNS_PER_COMBO = 3  # Number of runs per config/query combination
 # Patched WorkerPool that uses per-worker temperatures
 # ---------------------------------------------------------------------------
 
+# Rate limiter: space out API calls to avoid 503/429
+_last_api_call = 0.0
+_API_CALL_DELAY = 0.5  # minimum seconds between batch starts
+
+MAX_RETRIES = 4
+RETRY_BACKOFF = [2, 5, 10, 20]  # seconds to wait after each retry
+
+
+def _api_call_with_retry(client, prompt: str, temp: float, worker_idx: int) -> str:
+    """Single API call with exponential backoff on 503/429."""
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(temperature=temp),
+            )
+            return (response.text or "").strip()
+        except Exception as e:
+            err_str = str(e)
+            is_retryable = "503" in err_str or "429" in err_str or "UNAVAILABLE" in err_str or "RESOURCE_EXHAUSTED" in err_str
+            if is_retryable and attempt < MAX_RETRIES:
+                wait = RETRY_BACKOFF[attempt]
+                logger.warning("Worker %d attempt %d failed (%s), retrying in %ds...", worker_idx, attempt + 1, err_str[:80], wait)
+                time.sleep(wait)
+            else:
+                raise
+
+
 class TempAwareWorkerPool:
-    """Workers with individual temperature assignments."""
+    """Workers with individual temperature assignments and rate limiting."""
 
     def __init__(self, config: AgentConfig, temperatures: List[float]):
         self.config = config
         self.temperatures = temperatures
 
     def generate_batch(self, prompt: str, state: MAKERState, batch_size: Optional[int] = None) -> List[str]:
+        global _last_api_call
         count = batch_size or len(self.temperatures)
         responses: List[str] = []
+
+        # Rate limit: wait if we're calling too fast
+        elapsed = time.time() - _last_api_call
+        if elapsed < _API_CALL_DELAY:
+            time.sleep(_API_CALL_DELAY - elapsed)
+        _last_api_call = time.time()
 
         def _run_one(idx: int) -> str:
             temp = self.temperatures[idx % len(self.temperatures)]
             client = genai.Client(api_key=self.config.google_api_key)
-            response = client.models.generate_content(
-                model="gemini-flash-latest",
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(temperature=temp),
-            )
-            return (response.text or "").strip()
+            return _api_call_with_retry(client, prompt, temp, idx)
 
         with ThreadPoolExecutor(max_workers=count) as executor:
             futures = {executor.submit(_run_one, i): i for i in range(count)}
@@ -110,7 +141,7 @@ class TempAwareWorkerPool:
                     if text:
                         responses.append(text)
                 except Exception as e:
-                    logger.warning("Worker %d failed: %s", futures[future], e)
+                    logger.warning("Worker %d failed after retries: %s", futures[future], e)
 
         return responses
 

@@ -21,11 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 class WorkerPool:
-    """Spawns parallel workers using Gemini Flash to generate candidate responses."""
+    """Spawns parallel workers using Gemini Flash with graduated temperatures."""
 
     def __init__(self, config: AgentConfig):
         self.config = config
         self.worker_count = config.worker_batch_size
+        self.temperatures = config.worker_temperatures
 
     def generate_batch(
         self, prompt: str, state: MAKERState, batch_size: Optional[int] = None
@@ -34,11 +35,12 @@ class WorkerPool:
         responses: List[str] = []
 
         def _run_one(idx: int) -> str:
+            temp = self.temperatures[idx % len(self.temperatures)]
             client = genai.Client(api_key=self.config.google_api_key)
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.7),
+                config=types.GenerateContentConfig(temperature=temp),
             )
             return (response.text or "").strip()
 
