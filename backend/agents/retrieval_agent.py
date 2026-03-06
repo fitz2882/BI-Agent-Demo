@@ -51,7 +51,7 @@ Only include information present in the provided context from the Knowledge Base
 
         # Initialize Gemini client
         self.client = genai.Client(api_key=self.api_key)
-        self.model_name = "gemini-flash-latest"
+        self.model_name = "gemini-2.5-flash"
 
         if self.corpus_name:
             logger.info("RetrievalAgent initialized with File Search store: %s", self.corpus_name)

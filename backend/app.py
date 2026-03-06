@@ -23,7 +23,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Ensure demo database exists
-DB_PATH = os.getenv("DB_PATH", "demo_data/demo.db")
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+DB_PATH = os.getenv("DB_PATH", str(_REPO_ROOT / "demo_data" / "demo.db"))
 if not Path(DB_PATH).exists():
     logger.warning("Demo database not found at %s. Run: python demo_data/seed.py", DB_PATH)
 
