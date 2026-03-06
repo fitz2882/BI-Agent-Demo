@@ -9,6 +9,7 @@ Flow:
 import logging
 import time
 from typing import Dict, Any, Optional, Callable
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import AgentConfig
 from .state import MAKERState
@@ -79,11 +80,12 @@ class Pipeline:
                 logger.info("SQL retry %d: %s", attempt + 1, state.step_outputs.execution_error)
                 state.log_step("Pipeline", f"SQL retry {attempt + 1}")
 
-        # 8. Format results
-        answer = self.formatter.format(state)
-
-        # 9. Visualization
-        chart_spec = self.viz.generate(state)
+        # 8-9. Format results + Visualization (parallel)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            answer_future = executor.submit(self.formatter.format, state)
+            chart_future = executor.submit(self.viz.generate, state)
+            answer = answer_future.result()
+            chart_spec = chart_future.result()
 
         elapsed_ms = int((time.time() - start) * 1000)
         state.execution_time_ms = elapsed_ms

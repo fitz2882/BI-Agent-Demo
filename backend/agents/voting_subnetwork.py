@@ -27,6 +27,7 @@ class WorkerPool:
         self.config = config
         self.worker_count = config.worker_batch_size
         self.temperatures = config.worker_temperatures
+        self.client = genai.Client(api_key=config.google_api_key)
 
     def generate_batch(
         self, prompt: str, state: MAKERState, batch_size: Optional[int] = None
@@ -36,8 +37,7 @@ class WorkerPool:
 
         def _run_one(idx: int) -> str:
             temp = self.temperatures[idx % len(self.temperatures)]
-            client = genai.Client(api_key=self.config.google_api_key)
-            response = client.models.generate_content(
+            response = self.client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(temperature=temp),
