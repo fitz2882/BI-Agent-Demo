@@ -147,3 +147,37 @@ def test_pipeline_surfaces_low_confidence(config, monkeypatch):
     assert result["error"] is None
     assert result["low_confidence_steps"] == ["SqlSynthesizer"]
     assert result["answer"] == "single"
+
+
+# -- Model config: one configurable model, no sampling params ------------------------
+
+def test_workers_use_configured_model_without_temperature(config):
+    from agents.voting_subnetwork import WorkerPool
+
+    seen = []
+
+    class FakeResp:
+        text = "orders"
+
+    def fake_generate(**kwargs):
+        seen.append(kwargs)
+        return FakeResp()
+
+    pool = WorkerPool(config.model_copy(update={"gemini_model": "gemini-test-model"}))
+    pool.client.models.generate_content = fake_generate
+    out = pool.generate_batch("p", MAKERState(user_question="q"), batch_size=3)
+    assert out == ["orders"] * 3
+    assert all(k["model"] == "gemini-test-model" for k in seen)
+    assert all("config" not in k or getattr(k["config"], "temperature", None) is None for k in seen)
+
+
+def test_voting_error_includes_last_model_error(config, monkeypatch):
+    from agents.voting_subnetwork import WorkerPool
+
+    def boom(**kwargs):
+        raise RuntimeError("404 model not found")
+
+    voting = VotingSubNetwork(config, name="JoinArchitect")
+    voting.workers.client.models.generate_content = boom
+    with pytest.raises(VotingError, match="404 model not found"):
+        voting.execute("p", MAKERState(user_question="q", k_threshold=2), step="joins")

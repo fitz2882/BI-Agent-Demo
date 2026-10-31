@@ -55,7 +55,7 @@ class FormatterAgent:
 
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=self.config.gemini_model,
                 contents=(
                     f"The SQL query for '{state.user_question}' returned: "
                     f"{col} = {formatted}. Write a 1-2 sentence natural language answer. "
@@ -73,7 +73,7 @@ class FormatterAgent:
 
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=self.config.gemini_model,
                 contents=(
                     f"The SQL query for '{state.user_question}' returned {n} rows:\n\n"
                     f"{preview}\n\n"

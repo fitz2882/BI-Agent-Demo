@@ -31,13 +31,18 @@ class VotingError(RuntimeError):
 
 
 class WorkerPool:
-    """Spawns parallel workers using Gemini Flash with graduated temperatures."""
+    """Spawns parallel Gemini workers.
+
+    Gemini 3.x models no longer accept sampling parameters (temperature, top_p,
+    top_k), so workers use the model's default sampling. Each call samples
+    independently, which gives the vote its diversity.
+    """
 
     def __init__(self, config: AgentConfig):
         self.config = config
         self.worker_count = config.worker_batch_size
-        self.temperatures = config.worker_temperatures
         self.client = genai.Client(api_key=config.google_api_key)
+        self.last_error: Optional[str] = None
 
     def generate_batch(
         self, prompt: str, state: MAKERState, batch_size: Optional[int] = None
@@ -46,11 +51,9 @@ class WorkerPool:
         responses: List[str] = []
 
         def _run_one(idx: int) -> str:
-            temp = self.temperatures[idx % len(self.temperatures)]
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=self.config.gemini_model,
                 contents=prompt,
-                config=types.GenerateContentConfig(temperature=temp),
             )
             return (response.text or "").strip()
 
@@ -62,6 +65,7 @@ class WorkerPool:
                     if text:
                         responses.append(text)
                 except Exception as e:
+                    self.last_error = str(e)
                     logger.warning("Worker %d failed: %s", futures[future], e)
 
         logger.info("Generated %d/%d responses (trace=%s)", len(responses), count, state.trace_id)
@@ -184,7 +188,9 @@ class VotingSubNetwork:
                 # instead of looping forever.
                 logger.error("[%s] No valid responses after %d batches", self.name, batch)
                 state.log_step(f"VotingSubNetwork({self.name})", f"No valid responses after {batch} batches")
+                detail = self.workers.last_error
                 raise VotingError(
-                    f"{self.name} got no valid answers from the model after {batch} attempts. "
-                    "Check the API key and try again."
+                    f"{self.name} got no valid answers from {self.config.gemini_model} "
+                    f"after {batch} attempts. "
+                    + (f"Last model error: {detail[:300]}" if detail else "Check the API key and model name.")
                 )

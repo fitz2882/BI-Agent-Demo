@@ -65,8 +65,8 @@ Question -> ComplexityAnalyzer -> RetrievalAgent -> TableSelector(voting)
 
 ## Key Design Decisions
 
-- All LLM calls use `google-genai` SDK with `gemini-flash-latest` model
-- Workers use `temperature=0.7`; each worker creates its own `genai.Client`
+- All LLM calls use the `google-genai` SDK with one model set by `GEMINI_MODEL` (default `gemini-3.8-flash`)
+- No sampling parameters are sent (Gemini 3.x rejects `temperature`/`top_p`/`top_k`); vote diversity comes from default sampling
 - SQL validation rejects any non-SELECT statements (write protection)
 - Pipeline has a retry loop (max 2 retries) for SQL execution errors
 - Frontend uses CSS custom properties (`var(--color-*)`) for theming
