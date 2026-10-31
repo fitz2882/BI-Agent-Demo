@@ -7,6 +7,7 @@ to achieve consensus through parallel generation and ahead-by-K voting.
 """
 
 import logging
+import re
 from typing import List, Dict, Optional, Callable
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,6 +19,15 @@ from .state import MAKERState
 from .config import AgentConfig
 
 logger = logging.getLogger(__name__)
+
+# Write/DDL keywords that must never appear in a generated query.
+# Matched as whole words so column names like `updated_at` or `is_deleted` pass.
+WRITE_KEYWORDS = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"]
+_WRITE_RE = re.compile(r"\b(" + "|".join(WRITE_KEYWORDS) + r")\b")
+
+
+class VotingError(RuntimeError):
+    """Raised when a voting step cannot produce any valid candidate."""
 
 
 class WorkerPool:
@@ -69,7 +79,7 @@ class ValidatorAgent:
             # Basic SQL injection guard for sql step
             if step == "sql":
                 upper = r.upper()
-                if any(kw in upper for kw in ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE"]):
+                if _WRITE_RE.search(upper):
                     logger.warning("Rejected write operation in SQL response")
                     continue
                 if not upper.strip().startswith("SELECT"):
@@ -147,32 +157,34 @@ class VotingSubNetwork:
                 responses = [normalizer(r) for r in responses]
 
             valid = self.validator.validate_batch(responses, state, step)
-            if not valid:
-                if batch >= self.config.max_retry_batches:
-                    # Safety valve: pick the best we have
-                    if accumulated:
-                        best = max(accumulated, key=accumulated.get)
-                        logger.warning("[%s] Safety valve after %d batches", self.name, batch)
-                        state.log_step(f"VotingSubNetwork({self.name})", f"Safety valve after {batch} batches")
-                        return best, True
-                    continue
-                continue
+            if valid:
+                batch_votes = self.tally.tally(valid)
+                for resp, count in batch_votes.items():
+                    accumulated[resp] = accumulated.get(resp, 0) + count
 
-            batch_votes = self.tally.tally(valid)
-            for resp, count in batch_votes.items():
-                accumulated[resp] = accumulated.get(resp, 0) + count
+                winner, _ = self.consensus.check(accumulated, state.k_threshold)
+                if winner:
+                    state.log_step(
+                        f"VotingSubNetwork({self.name})",
+                        f"Consensus after {batch} batch(es), {sum(accumulated.values())} total votes",
+                    )
+                    return winner, False
 
-            winner, needs_regen = self.consensus.check(accumulated, state.k_threshold)
-
-            if winner:
-                state.log_step(
-                    f"VotingSubNetwork({self.name})",
-                    f"Consensus after {batch} batch(es), {sum(accumulated.values())} total votes",
+            # Safety valve: stop after max_retry_batches, whatever happened.
+            if batch >= self.config.max_retry_batches:
+                if accumulated:
+                    best = max(accumulated, key=accumulated.get)
+                    logger.warning("[%s] Max batches reached, selecting top vote getter", self.name)
+                    state.log_step(
+                        f"VotingSubNetwork({self.name})",
+                        f"No consensus after {batch} batches, top vote selected (low confidence)",
+                    )
+                    return best, True
+                # Every worker failed or every answer was rejected: fail loudly
+                # instead of looping forever.
+                logger.error("[%s] No valid responses after %d batches", self.name, batch)
+                state.log_step(f"VotingSubNetwork({self.name})", f"No valid responses after {batch} batches")
+                raise VotingError(
+                    f"{self.name} got no valid answers from the model after {batch} attempts. "
+                    "Check the API key and try again."
                 )
-                return winner, False
-
-            if batch >= self.config.max_retry_batches and accumulated:
-                best = max(accumulated, key=accumulated.get)
-                logger.warning("[%s] Max batches reached, selecting top vote getter", self.name)
-                state.log_step(f"VotingSubNetwork({self.name})", f"Max batches ({batch}), top vote selected")
-                return best, True

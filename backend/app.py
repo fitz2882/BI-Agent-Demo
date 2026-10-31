@@ -64,6 +64,9 @@ class QueryResponse(BaseModel):
     answer: str
     sql: str | None = None
     results: list = []
+    total_rows: int = 0
+    error: str | None = None
+    low_confidence_steps: list[str] = []
     chart: dict | None = None
     steps: list = []
     execution_time_ms: int = 0

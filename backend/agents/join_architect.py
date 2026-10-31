@@ -40,6 +40,8 @@ Rules:
 Output format: JOIN clause string (e.g., "INNER JOIN order_items ON orders.id = order_items.order_id")"""
 
         winner, low_conf = self.voting.execute(prompt, state, step="joins")
+        if low_conf:
+            state.mark_low_confidence("JoinArchitect")
         state.step_outputs.join_logic = winner
         state.log_step("JoinArchitect", f"Join logic: {winner[:80]}...")
         logger.info("Join logic determined (low_confidence=%s)", low_conf)

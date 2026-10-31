@@ -58,6 +58,8 @@ Output: Complete SQL SELECT statement"""
             return text
 
         winner, low_conf = self.voting.execute(prompt, state, step="sql", normalizer=normalize)
+        if low_conf:
+            state.mark_low_confidence("SqlSynthesizer")
         state.step_outputs.final_sql = winner
         state.log_step("SqlSynthesizer", f"Generated SQL: {winner[:100]}...")
         logger.info("SQL synthesized (low_confidence=%s)", low_conf)
