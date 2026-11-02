@@ -181,3 +181,59 @@ def test_voting_error_includes_last_model_error(config, monkeypatch):
     voting.workers.client.models.generate_content = boom
     with pytest.raises(VotingError, match="404 model not found"):
         voting.execute("p", MAKERState(user_question="q", k_threshold=2), step="joins")
+
+
+# -- Votes count meaning, not formatting -----------------------------------------------
+
+def test_canonical_sql_ignores_formatting_but_keeps_literals():
+    from agents.voting_subnetwork import canonical_sql
+
+    a = """SELECT c.name, SUM(oi.quantity * oi.unit_price) AS revenue
+FROM order_items oi
+INNER JOIN products p ON oi.product_id = p.id
+JOIN categories c ON p.category_id = c.id
+GROUP BY c.name;"""
+    b = ("```sql\nselect c.name, sum(oi.quantity*oi.unit_price) revenue from order_items AS oi "
+         "join products AS p on p.id = oi.product_id join categories c on c.id=p.category_id group by c.name\n```")
+    assert canonical_sql(a) == canonical_sql(b)
+    # String literals are compared exactly.
+    assert canonical_sql("SELECT * FROM t WHERE n = 'Books'") != canonical_sql("SELECT * FROM t WHERE n = 'books'")
+    # Real differences still split the vote.
+    assert canonical_sql("SELECT a FROM t WHERE x = 1") != canonical_sql("SELECT a FROM t WHERE x = 2")
+
+
+def test_formatting_variants_reach_consensus_in_one_batch(config, monkeypatch):
+    variants = [
+        "SELECT COUNT(*) FROM orders;",
+        "select count(*) from orders",
+        "SELECT COUNT(*)\nFROM orders",
+        "SELECT  COUNT( * )  FROM  Orders",
+    ]
+    calls = {"n": 0}
+
+    def batch(self, prompt, state, batch_size=None):
+        calls["n"] += 1
+        return list(variants)
+
+    monkeypatch.setattr("agents.voting_subnetwork.WorkerPool.generate_batch", batch)
+    voting = VotingSubNetwork(config, name="SqlSynthesizer")
+    winner, low_conf = voting.execute("p", MAKERState(user_question="q", k_threshold=4), step="sql")
+    assert calls["n"] == 1 and low_conf is False
+    assert winner == variants[0]  # a real answer, not the internal vote key
+
+
+# -- Complexity: each kind of work counts once --------------------------------------
+
+@pytest.mark.parametrize("question,expected_k", [
+    ("How many customers are there?", 2),
+    ("What is the average employee salary?", 2),
+    ("Show me total revenue by product category", 3),
+    ("Which department has the most employees?", 3),
+    ("Which customers ordered in 2023 but never in 2024, and what was their average order value?", 4),
+    ("Show me total revenue by product category with year-over-year growth for the top 5 categories", 5),
+])
+def test_complexity_k_matches_question_difficulty(question, expected_k):
+    from agents.complexity_analyzer import ComplexityAnalyzer
+
+    state = ComplexityAnalyzer().analyze(MAKERState(user_question=question))
+    assert state.k_threshold == expected_k

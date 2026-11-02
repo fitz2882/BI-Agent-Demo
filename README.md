@@ -28,7 +28,7 @@ The core innovation is the **voting sub-network** pattern:
 
 1. **Parallel Workers** generate K candidate responses using Gemini Flash
 2. **Validator** filters out invalid responses (SQL injection, bad syntax, etc.)
-3. **Vote Tally** counts votes for each unique response
+3. **Vote Tally** counts votes for each unique answer, ignoring formatting (whitespace, case, `AS`, join-condition order), so equivalent SQL shares one tally
 4. **Consensus** applies ahead-by-K logic — the leader must be ahead of the runner-up by K votes
 5. If no consensus, generate another batch (votes accumulate across rounds)
 

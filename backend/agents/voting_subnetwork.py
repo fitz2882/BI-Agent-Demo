@@ -26,6 +26,40 @@ WRITE_KEYWORDS = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUN
 _WRITE_RE = re.compile(r"\b(" + "|".join(WRITE_KEYWORDS) + r")\b")
 
 
+_EQ_PAIR_RE = re.compile(r"([a-z_][\w]*\.[a-z_][\w]*)=([a-z_][\w]*\.[a-z_][\w]*)")
+
+
+def canonical_sql(text: str) -> str:
+    """Vote key for SQL and JOIN answers.
+
+    Two answers that differ only in formatting should count as the same vote.
+    This ignores code fences, a trailing semicolon, whitespace, keyword case,
+    identifier quotes, optional AS / INNER / OUTER keywords and the side order
+    of `a.x = b.y` join conditions. Text inside single-quoted string literals
+    is kept exactly, since 'Books' and 'books' are different filters.
+    """
+    t = text.strip()
+    if t.startswith("```"):
+        t = "\n".join(l for l in t.split("\n") if not l.strip().startswith("```"))
+    t = t.strip().rstrip(";").strip()
+
+    parts = re.split(r"('(?:[^']|'')*')", t)
+    out = []
+    for i, part in enumerate(parts):
+        if i % 2:  # string literal: keep as-is
+            out.append(part)
+            continue
+        p = part.lower().replace('"', "").replace("`", "")
+        p = re.sub(r"\s+", " ", p)
+        p = re.sub(r"(?<=[\w)]) as (?=\w)", " ", p)
+        p = re.sub(r"\binner join\b", "join", p)
+        p = re.sub(r"\b(left|right|full) outer join\b", r"\1 join", p)
+        p = re.sub(r"\s*([(),=<>+*/-])\s*", r"\1", p)
+        p = _EQ_PAIR_RE.sub(lambda m: "=".join(sorted(m.groups())), p)
+        out.append(p)
+    return "".join(out).strip()
+
+
 class VotingError(RuntimeError):
     """Raised when a voting step cannot produce any valid candidate."""
 
@@ -142,12 +176,20 @@ class VotingSubNetwork:
         state: MAKERState,
         step: str,
         normalizer: Optional[Callable[[str], str]] = None,
+        vote_key: Optional[Callable[[str], str]] = None,
     ) -> tuple[str, bool]:
         """Run voting until consensus or safety valve.
 
+        Votes are counted by `vote_key(answer)`, so answers that mean the same
+        thing share one tally. SQL and JOIN steps default to `canonical_sql`.
+        The winner returned is the first real answer seen for the winning key.
+
         Returns (winner, low_confidence).
         """
+        if vote_key is None:
+            vote_key = canonical_sql if step in ("sql", "joins") else (lambda s: s)
         accumulated: Dict[str, int] = {}
+        examples: Dict[str, str] = {}
         batch = 0
 
         while True:
@@ -162,9 +204,14 @@ class VotingSubNetwork:
 
             valid = self.validator.validate_batch(responses, state, step)
             if valid:
-                batch_votes = self.tally.tally(valid)
-                for resp, count in batch_votes.items():
-                    accumulated[resp] = accumulated.get(resp, 0) + count
+                keys = []
+                for resp in valid:
+                    key = vote_key(resp)
+                    examples.setdefault(key, resp)
+                    keys.append(key)
+                batch_votes = self.tally.tally(keys)
+                for key, count in batch_votes.items():
+                    accumulated[key] = accumulated.get(key, 0) + count
 
                 winner, _ = self.consensus.check(accumulated, state.k_threshold)
                 if winner:
@@ -172,7 +219,7 @@ class VotingSubNetwork:
                         f"VotingSubNetwork({self.name})",
                         f"Consensus after {batch} batch(es), {sum(accumulated.values())} total votes",
                     )
-                    return winner, False
+                    return examples[winner], False
 
             # Safety valve: stop after max_retry_batches, whatever happened.
             if batch >= self.config.max_retry_batches:
@@ -183,7 +230,7 @@ class VotingSubNetwork:
                         f"VotingSubNetwork({self.name})",
                         f"No consensus after {batch} batches, top vote selected (low confidence)",
                     )
-                    return best, True
+                    return examples[best], True
                 # Every worker failed or every answer was rejected: fail loudly
                 # instead of looping forever.
                 logger.error("[%s] No valid responses after %d batches", self.name, batch)

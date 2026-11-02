@@ -1,4 +1,9 @@
-"""Complexity Analyzer - scores question complexity and sets adaptive K threshold."""
+"""Complexity Analyzer - scores question complexity and sets adaptive K threshold.
+
+The score is a deterministic heuristic (no LLM call). Each *kind* of SQL work a
+question implies is counted once, so a simple "total X by Y" question isn't
+scored as complex just because it uses several related words.
+"""
 
 import re
 import logging
@@ -7,20 +12,40 @@ from .state import MAKERState
 
 logger = logging.getLogger(__name__)
 
-# SQL operations that indicate complexity
-SQL_OPERATIONS = {
-    "join", "group by", "having", "order by", "union",
-    "subquery", "sum", "count", "avg", "max", "min",
-    "distinct", "case when", "partition by",
+# Business entities. Singular and plural forms map to one concept so
+# "product" and "products" count once.
+BUSINESS_ENTITIES = {
+    "user": "user", "users": "user",
+    "customer": "customer", "customers": "customer",
+    "order": "order", "orders": "order",
+    "product": "product", "products": "product",
+    "category": "category", "categories": "category",
+    "payment": "payment", "payments": "payment",
+    "sale": "sale", "sales": "sale",
+    "revenue": "revenue",
+    "employee": "employee", "employees": "employee",
+    "department": "department", "departments": "department",
 }
 
-# Business entities
-BUSINESS_ENTITIES = {
-    "user", "users", "customer", "customers", "order", "orders",
-    "product", "products", "category", "categories",
-    "payment", "payments", "sale", "sales", "revenue",
-    "employee", "employees", "department", "departments",
+# Each signal is scored at most once, however many of its words appear.
+# Basic shaping (aggregate, group, rank) is cheap; harder SQL costs more.
+BASIC_SIGNALS = {
+    "aggregation": r"\b(total|sum|count|how many|number of|average|avg|mean|max|maximum|min|minimum)\b",
+    "grouping": r"\b(by|per|each|for each|group by|breakdown)\b",
+    "ranking": r"\b(top|bottom|highest|lowest|most|least|best|worst|rank|order by)\b",
 }
+HARD_SIGNALS = {
+    "time_comparison": r"\b(year[- ]over[- ]year|yoy|month[- ]over[- ]month|growth|trend|compared? to|vs\.?|versus)\b",
+    "ratio": r"\b(ratio|percent(age)?|share of|margin|rate)\b",
+    "filter_on_aggregate": r"\b(having|more than \d+|at least \d+|fewer than \d+|above average|below average)\b",
+    "window": r"\b(running total|cumulative|rolling|moving average|partition)\b",
+    "set_logic": r"\b(never|without|not in|neither|both|union|distinct)\b",
+    "date_math": r"\b(between|since|last \d+ (days|weeks|months|years)|in \d{4}|quarter|q[1-4])\b",
+}
+
+BASIC_WEIGHT = 0.1
+HARD_WEIGHT = 0.2
+ENTITY_WEIGHT = 0.1  # per entity beyond the first
 
 
 class ComplexityAnalyzer:
@@ -40,30 +65,18 @@ class ComplexityAnalyzer:
     # -- internals --
 
     def _compute_score(self, question: str) -> float:
-        score = min(len(question) / 200.0, 0.3)
-        score += self._count_entities(question) * 0.1
-        score += self._count_operations(question) * 0.15
-        return max(0.0, min(1.0, score))
+        score = min(len(question) / 300.0, 0.2)
+        score += max(0, self._count_entities(question) - 1) * ENTITY_WEIGHT
+        score += sum(BASIC_WEIGHT for p in BASIC_SIGNALS.values() if re.search(p, question))
+        score += sum(HARD_WEIGHT for p in HARD_SIGNALS.values() if re.search(p, question))
+        return round(max(0.0, min(1.0, score)), 3)
 
     def _count_entities(self, question: str) -> int:
         found: Set[str] = set()
-        for entity in BUSINESS_ENTITIES:
-            if re.search(rf"\b{re.escape(entity)}\b", question):
-                found.add(entity)
+        for word, concept in BUSINESS_ENTITIES.items():
+            if re.search(rf"\b{re.escape(word)}\b", question):
+                found.add(concept)
         return len(found)
-
-    def _count_operations(self, question: str) -> int:
-        count = 0
-        for op in SQL_OPERATIONS:
-            if op in question:
-                count += 1
-        if re.search(r"\b(top|first|last)\s+\d+", question):
-            count += 1
-        if re.search(r"\b(per|by|for each)\b", question):
-            count += 1
-        if re.search(r"\b(total|sum|average|mean)\b", question):
-            count += 1
-        return count
 
     @staticmethod
     def _k_threshold(score: float) -> int:

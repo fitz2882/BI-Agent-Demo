@@ -20,6 +20,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
+# The Gemini SDK logs "AFC is enabled" on every call; keep it out of the trace.
+logging.getLogger("google_genai.models").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Ensure demo database exists
