@@ -29,6 +29,9 @@ class VisualizationAgent:
         spec = self._select_chart(time_cols, numeric_cols, categorical_cols, results)
         if spec:
             spec["data"] = self._clean_data(results)
+            if self._should_sort(spec, state):
+                key = spec["xKey"] if spec["type"] == "horizontal_bar" else spec["yKey"]
+                spec["data"] = sorted(spec["data"], key=lambda r: self._num(r.get(key)), reverse=True)
             y_label = ", ".join(spec["yKeys"]) if "yKeys" in spec else spec.get("yKey", "")
             state.log_step("Visualization", f"{spec['type'].replace('_', ' ').title()} chart: X={spec['xKey']}, Y={y_label}")
         return spec
@@ -57,6 +60,21 @@ class VisualizationAgent:
             return {"type": "bar", "xKey": categorical_cols[0], "yKey": numeric_cols[0], "title": "Comparison"}
 
         return None
+
+    @staticmethod
+    def _should_sort(spec, state) -> bool:
+        """Sort category charts largest-first, unless the SQL already chose an order."""
+        if spec["type"] not in ("bar", "horizontal_bar", "pie"):
+            return False
+        sql = (state.step_outputs.final_sql or "").lower()
+        return not re.search(r"\border\s+by\b", sql)
+
+    @staticmethod
+    def _num(val) -> float:
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return float("-inf")
 
     def _find_time_columns(self, columns, results):
         # Match standalone time-related segments in column names (e.g. "order_date" but not "lifetime_value")

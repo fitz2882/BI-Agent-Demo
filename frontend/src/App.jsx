@@ -38,6 +38,8 @@ function App() {
           execution_time_ms: result.execution_time_ms,
           complexity: result.complexity,
           trace_id: result.trace_id,
+          error: result.error,
+          low_confidence_steps: result.low_confidence_steps || [],
         },
       ]);
     } catch (error) {
@@ -108,6 +110,15 @@ function App() {
               {msg.type === 'ai' && (
                 <div className="space-y-3">
                   <MessageBubble type="ai">{msg.content}</MessageBubble>
+                  {msg.low_confidence_steps?.length > 0 && !msg.error && (
+                    <div
+                      className="text-xs px-3 py-2 rounded-lg"
+                      style={{ backgroundColor: '#2a1f05', color: '#fbbf24', border: '1px solid #78350f' }}
+                    >
+                      Low confidence: the voting agents didn't reach consensus on{' '}
+                      {msg.low_confidence_steps.join(', ')}, so the top-voted answer was used. Double-check the SQL.
+                    </div>
+                  )}
                   {msg.sql && <SQLDisplay sql={msg.sql} />}
                   {msg.chart && <ChartRenderer spec={msg.chart} results={msg.results} />}
                   {msg.steps && msg.steps.length > 0 && (

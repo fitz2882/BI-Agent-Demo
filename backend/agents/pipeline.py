@@ -18,7 +18,7 @@ from .retrieval_agent import RetrievalAgent
 from .table_selector import TableSelector
 from .join_architect import JoinArchitect
 from .sql_synthesizer import SqlSynthesizer
-from .executor import ExecutorAgent
+from .executor import ExecutorAgent, display_rows
 from .formatter import FormatterAgent
 from .visualization import VisualizationAgent
 
@@ -80,6 +80,15 @@ class Pipeline:
                 logger.info("SQL retry %d: %s", attempt + 1, state.step_outputs.execution_error)
                 state.log_step("Pipeline", f"SQL retry {attempt + 1}")
 
+        # A zero-rows result that survived every retry is a real (empty) answer,
+        # not an error.
+        if state.step_outputs.zero_results_retry:
+            state.step_outputs.execution_error = None
+            state.step_outputs.zero_results_retry = False
+        sql_error = state.step_outputs.execution_error
+        if sql_error:
+            state.log_step("Pipeline", f"SQL still failing after {MAX_SQL_RETRIES} retries")
+
         # 8-9. Format results + Visualization (parallel)
         with ThreadPoolExecutor(max_workers=2) as executor:
             answer_future = executor.submit(self.formatter.format, state)
@@ -95,7 +104,10 @@ class Pipeline:
             "trace_id": state.trace_id,
             "answer": answer,
             "sql": state.step_outputs.final_sql,
-            "results": state.query_results or [],
+            "results": display_rows(state.query_results or []),
+            "total_rows": len(state.query_results or []),
+            "error": sql_error,
+            "low_confidence_steps": state.low_confidence_steps,
             "chart": chart_spec,
             "steps": state.agent_steps,
             "execution_time_ms": elapsed_ms,

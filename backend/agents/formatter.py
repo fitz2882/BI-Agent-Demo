@@ -19,6 +19,9 @@ class FormatterAgent:
         self.client = genai.Client(api_key=config.google_api_key)
 
     def format(self, state: MAKERState) -> str:
+        if state.step_outputs.execution_error:
+            return self._format_error(state)
+
         if state.query_results is None:
             return "No query was executed."
 
@@ -29,6 +32,14 @@ class FormatterAgent:
             return self._format_single(state)
 
         return self._format_multi(state)
+
+    def _format_error(self, state: MAKERState) -> str:
+        error = state.step_outputs.execution_error or "unknown error"
+        return (
+            "I couldn't build a query that runs for this question, so I don't have an answer. "
+            f"The last database error was: `{error[:200]}`. "
+            "Try rephrasing the question or naming the table you mean."
+        )
 
     def _format_empty(self, state: MAKERState) -> str:
         return (
@@ -44,7 +55,7 @@ class FormatterAgent:
 
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=self.config.gemini_model,
                 contents=(
                     f"The SQL query for '{state.user_question}' returned: "
                     f"{col} = {formatted}. Write a 1-2 sentence natural language answer. "
@@ -62,7 +73,7 @@ class FormatterAgent:
 
         try:
             response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model=self.config.gemini_model,
                 contents=(
                     f"The SQL query for '{state.user_question}' returned {n} rows:\n\n"
                     f"{preview}\n\n"

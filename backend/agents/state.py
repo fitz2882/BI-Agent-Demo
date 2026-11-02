@@ -17,6 +17,9 @@ class StepOutputs(BaseModel):
     join_logic: Optional[str] = None
     final_sql: Optional[str] = None
     execution_error: Optional[str] = None
+    # True when execution_error is the "zero rows on a complex question" retry
+    # signal rather than a real database error.
+    zero_results_retry: bool = False
 
 
 class MAKERState(BaseModel):
@@ -33,6 +36,8 @@ class MAKERState(BaseModel):
     retry_count: int = Field(default=0, ge=0)
     execution_time_ms: int = Field(default=0, ge=0)
     agent_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    # Voting steps that hit the batch cap without reaching ahead-by-K consensus.
+    low_confidence_steps: List[str] = Field(default_factory=list)
     _on_step: Optional[Callable[[str, str], None]] = PrivateAttr(default=None)
 
     def log_step(self, agent: str, detail: str):
@@ -40,6 +45,10 @@ class MAKERState(BaseModel):
         self.agent_steps.append({"agent": agent, "detail": detail})
         if self._on_step:
             self._on_step(agent, detail)
+
+    def mark_low_confidence(self, step: str):
+        if step not in self.low_confidence_steps:
+            self.low_confidence_steps.append(step)
 
     def to_json(self) -> dict:
         return self.model_dump()

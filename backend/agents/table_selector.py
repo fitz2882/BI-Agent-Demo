@@ -40,6 +40,8 @@ Output format: table1,table2,table3"""
             return ",".join(names)
 
         winner, low_conf = self.voting.execute(prompt, state, step="tables", normalizer=normalize)
+        if low_conf:
+            state.mark_low_confidence("TableSelector")
         state.step_outputs.table_selection = winner
         state.log_step("TableSelector", f"Selected tables: {winner}")
         logger.info("Table selection: %s (low_confidence=%s)", winner, low_conf)

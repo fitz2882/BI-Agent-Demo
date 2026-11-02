@@ -11,6 +11,28 @@ from .config import AgentConfig
 
 logger = logging.getLogger(__name__)
 
+# Rows kept in memory for the formatter and chart. Large enough for any demo
+# question; protects the server from runaway result sets.
+MAX_RESULT_ROWS = 1000
+# Rows sent back to the UI's results table.
+DISPLAY_ROWS = 20
+
+ZERO_RESULTS_MESSAGE = (
+    "Query returned zero results. Consider checking date ranges, "
+    "join conditions, or filter criteria."
+)
+
+
+def display_rows(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Trim a result set for display: first 5 + summary row + last 5."""
+    if len(results) <= DISPLAY_ROWS:
+        return results
+    return (
+        results[:5]
+        + [{"_summary": f"... {len(results) - 10} rows omitted ...", "_total_rows": len(results)}]
+        + results[-5:]
+    )
+
 
 class ExecutorAgent:
     """Executes SQL against the SQLite demo database."""
@@ -21,6 +43,7 @@ class ExecutorAgent:
 
     def execute(self, state: MAKERState) -> MAKERState:
         sql = (state.step_outputs.final_sql or "").strip()
+        state.step_outputs.zero_results_retry = False
         if not sql:
             state.step_outputs.execution_error = "No SQL query to execute"
             state.log_step("Executor", "Error: No SQL query")
@@ -37,11 +60,8 @@ class ExecutorAgent:
             results = self._run_query(sql)
             elapsed_ms = int((time.time() - start) * 1000)
 
-            # Truncate large results
-            if len(results) > 20:
-                truncated = results[:5] + [{"_summary": f"... {len(results) - 10} rows omitted ...", "_total_rows": len(results)}] + results[-5:]
-                results = truncated
-
+            # Keep the full result set (capped) so the formatter and chart see
+            # every row; the response trims it for display separately.
             state.query_results = results
             state.execution_time_ms = elapsed_ms
             state.step_outputs.execution_error = None
@@ -50,10 +70,8 @@ class ExecutorAgent:
 
             # Zero-results retry for complex queries
             if len(results) == 0 and state.complexity_score >= 0.7 and state.retry_count < 2:
-                state.step_outputs.execution_error = (
-                    "Query returned zero results. Consider checking date ranges, "
-                    "join conditions, or filter criteria."
-                )
+                state.step_outputs.execution_error = ZERO_RESULTS_MESSAGE
+                state.step_outputs.zero_results_retry = True
                 state.retry_count += 1
                 state.log_step("Executor", "Zero results on complex query, will retry")
 
@@ -73,7 +91,7 @@ class ExecutorAgent:
         try:
             cursor = conn.execute(sql)
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
-            rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            rows = [dict(zip(columns, row)) for row in cursor.fetchmany(MAX_RESULT_ROWS)]
             return rows
         finally:
             conn.close()
