@@ -237,3 +237,27 @@ def test_complexity_k_matches_question_difficulty(question, expected_k):
 
     state = ComplexityAnalyzer().analyze(MAKERState(user_question=question))
     assert state.k_threshold == expected_k
+
+
+# -- Charts: category bars sorted largest-first ------------------------------------
+
+def _bar_state(sql):
+    s = MAKERState(user_question="revenue by category")
+    s.step_outputs.final_sql = sql
+    s.query_results = [
+        {"name": "Electronics", "revenue": 33287.0},
+        {"name": "Home & Garden", "revenue": 42217.11},
+        {"name": "Sports", "revenue": 22179.24},
+    ]
+    return s
+
+
+def test_category_chart_sorted_largest_first():
+    spec = VisualizationAgent().generate(_bar_state("SELECT name, SUM(x) AS revenue FROM t GROUP BY name"))
+    assert spec["type"] == "horizontal_bar"
+    assert [r["name"] for r in spec["data"]] == ["Home & Garden", "Electronics", "Sports"]
+
+
+def test_chart_keeps_order_when_sql_has_order_by():
+    spec = VisualizationAgent().generate(_bar_state("SELECT name, SUM(x) AS revenue FROM t GROUP BY name ORDER BY name"))
+    assert [r["name"] for r in spec["data"]] == ["Electronics", "Home & Garden", "Sports"]
